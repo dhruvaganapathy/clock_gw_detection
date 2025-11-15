@@ -1,0 +1,28 @@
+Dhruva : Improve the detector side of the code, make more flexible 
+
+Divya : Take the estimated parameters, generate a skymap, maybe try backing out polarization amplitudes, angle and binary inclination 
+
+
+Time delay: 
+array([ 0.        , 45.77729546, 52.77261775])
+Time_delay_error:
+array([2.541047  , 1.23204139, 1.16256412])
+antenna_response_amplitude 
+array([1.        , 0.88506817, 1.07263327])
+antenna_response_amp_err
+array([0.01804101, 0.01900426, 0.0183295 ])
+antenna_response_phase
+array([-0.        , -1.82684031, -1.03222209])
+antenna_response_phase_err
+array([0.04228323, 0.04079532, 0.04015526])
+
+
+theta_sky  = 0.5
+phi_sky  = 0.7
+psi  = np.pi/3 
+inc_angle =np.pi/3
+
+
+Sammith : Explore parameter space. Make sets of extracted parameters and uncertainties. For every set, plot the GW frequency evolution, along with total measurement time and active measurement time demarcated 
+
+

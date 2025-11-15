@@ -1,0 +1,55 @@
+Documentation for GW Network Response Code
+
+1. compute_complex_response
+
+Purpose: Computes the complex gravitational-wave detector response for a
+network of detectors with specified arm orientations and positions.
+
+Parameters: positions (N×3 array): Cartesian positions of detectors.
+arms (N×3 array): Unit vectors describing detector arm orientations.
+f_gw (float): GW frequency in Hz. A_plus, A_cross (float or complex):
+Plus and cross mode GW amplitudes. theta, phi_sky (float): Sky location
+of GW source in spherical coordinates. psi (float): GW polarization
+angle.
+
+Returns: S: array of complex detector responses.
+
+Physics: - Builds polarization basis. - Constructs polarization
+tensors. - Computes detector tensor. - Includes geometric propagation
+delay.
+
+------------------------------------------------------------------------
+
+2. dual_band_network_response
+
+Purpose: Simulates a dual-frequency gravitational-wave measurement for a
+detector network, generating clock-based phase measurements and fitting
+sinusoidal modulation.
+
+Parameters: positions, arms: Detector geometry. f_gw1, f_gw2: Two GW
+frequencies. N_cycles_1, N_cycles_2: Number of measurement cycles.
+A_plus, A_cross: Intrinsic GW amplitudes. theta_sky, phi_sky, psi: GW
+source orientation. M_chirp (float): Chirp mass used by signal
+generator.
+
+Returns: fits, fits2: Fit results for two frequencies. T_1, T_2: Total
+measurement durations. S, S2: Complex detector responses at the two GW
+frequencies.
+
+------------------------------------------------------------------------
+
+3. dual_band_network_response_analyzer
+
+Purpose: Analyzes the dual-band fit results to reconstruct: - Detector
+antenna pattern (complex) - Relative time delays - Amplitude and phase
+uncertainties
+
+Parameters: fits: Fit results at f_gw1. fits2: Fit results at f_gw2.
+
+Returns: antenna_response_amp antenna_response_amp_err
+antenna_response_phase antenna_response_phase_err time_delay
+time_delay_err
+
+Algorithm: - Forms complex fit results A·exp(i·phi) - Computes phase
+difference between bands - Converts phase difference to geometric time
+delay - Removes delay to extract pure antenna response
