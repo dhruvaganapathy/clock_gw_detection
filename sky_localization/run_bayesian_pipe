@@ -1,0 +1,209 @@
+#!/usr/bin/env python
+
+import bilby
+import numpy as np
+import random
+from bilby.core.utils import random
+
+import warnings
+warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
+import lal
+
+f0 = 429e12
+h_const = lal.H_SI
+G = lal.G_SI
+c = lal.C_SI
+M0 = lal.MSUN_SI
+
+# Detector setup
+N_detectors = 3
+
+theta_1 = 0
+theta_2 = np.pi/3
+theta_3 = np.pi/6
+
+r = 1.46e11 #metres
+
+detector_positions = np.array([[r*np.cos(theta_1),r*np.sin(theta_1),0],[r*np.cos(theta_2),r*np.sin(theta_2),0],[r*np.cos(theta_3),r*np.sin(theta_3),0]])
+detector_arms = np.array([[np.sin(theta_1),np.cos(theta_1),0],[np.sin(theta_2),np.cos(theta_2),0],[np.sin(theta_3),np.cos(theta_3),0]])
+
+# Measurement
+f_gw=0.01
+Mc = 1000*M0
+
+# Signal Model
+def compute_complex_response(f_gw, ra, dec, A, iota, psi):
+    
+    theta, phi = bilby.core.utils.conversion.ra_dec_to_theta_phi(ra, dec, 0)
+
+    #A = f_gw**(-7/6) * (1./dL) * (5./(24 * np.pi ** (4/3))) * ((G * Mc) **(5./6.))/c**(3./2.)
+
+    A_plus = A * (1+np.cos(iota)**2)/2
+    A_cross = A * np.cos(iota)
+
+    # GW propagation vector
+    k = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)])
+    
+    # Basis vectors perpendicular to k
+    if np.allclose(k, [0,0,1]):
+        ex = np.array([1,0,0])
+    else:
+        ex = np.cross([0,0,1], k)
+        ex /= np.linalg.norm(ex)
+    ey = np.cross(k, ex)
+    
+    # Polarization tensors
+    e_plus = np.outer(ex, ex) - np.outer(ey, ey)
+    e_cross = np.outer(ex, ey) + np.outer(ey, ex)
+    
+    # Rotate by psi
+    e_plus_rot  = e_plus*np.cos(2*psi) + e_cross*np.sin(2*psi)
+    e_cross_rot = -e_plus*np.sin(2*psi) + e_cross*np.cos(2*psi)
+    
+    # Detector tensors
+    D = 0.5 * np.einsum('di,dj->dij', detector_arms, detector_arms)
+    
+    F_plus  = np.einsum('dij,ij->d', D, e_plus_rot)
+    F_cross = np.einsum('dij,ij->d', D, e_cross_rot)
+    
+    tau_model = np.dot(detector_positions, k)/c
+    #print(tau_model)
+
+    # Complex response including time delay
+    S_model = (F_plus*A_plus + F_cross*A_cross * np.exp(1j*np.pi/2)) * np.exp(-1j*2*np.pi*f_gw*tau_model)
+    #print(S_model)
+
+    return S_model
+
+# Custom Likelihood class
+class GWNetworkLikelihood(bilby.likelihood.Likelihood):
+    def __init__(self, data_S, error_S, model):
+        self.data_S = data_S  # Complex array of measured strain
+        self.error_S = error_S # Real array of strain errors (assuming equal Re/Im error)
+        #self.data_tau = data_tau # Real array of measured time delay
+        #self.error_tau = error_tau # Real array of time delay errors
+        self.model = model # The gw_network_model function
+
+        super().__init__(parameters={'ra': None, 'dec': None, 
+                                     'A': None, 'iota': None,
+                                     'psi': None
+                                     })
+
+    def log_likelihood(self):
+        """
+        Calculates the total log-likelihood for the current set of parameters (theta).
+        """
+        try:
+            S_model = self.model(f_gw, **self.parameters)
+        except Exception as e:
+            # Handle potential numerical errors by returning a very small likelihood
+            print(f"Model calculation failed: {e}")
+            return -np.inf
+        
+        # --- Likelihood from Time Delay (ln L_tau) ---
+        # Delta_tau = tau_meas - tau_model
+        #delta_tau = self.data_tau - tau_model
+        
+        # Time delay variance --> Put in measured error
+        #sigma_tau_sq = self.error_tau**2
+        
+        # Log-Likelihood calculation
+        #ln_L_tau = -0.5 * np.sum((delta_tau**2 / sigma_tau_sq) + np.log(2 * np.pi * sigma_tau_sq))
+        
+        # --- Likelihood from Complex Strain (ln L_S) ---
+        # Delta_S = S_meas - S_model (complex)
+        delta_S = self.data_S - S_model
+
+        delta_S_re = np.real(delta_S)
+        delta_S_im = np.imag(delta_S)
+        
+        # Assume errors are equal for real and imaginary components
+        sigma_S_sq = self.error_S**2
+        
+        # Log-Likelihood calculation for Re/Im parts
+        ln_L_S_re = -0.5 * np.sum((delta_S_re**2 / sigma_S_sq) + np.log(2 * np.pi * sigma_S_sq))
+        ln_L_S_im = -0.5 * np.sum((delta_S_im**2 / sigma_S_sq) + np.log(2 * np.pi * sigma_S_sq))
+        
+        ln_L_S = ln_L_S_re + ln_L_S_im
+        
+        # --- Total Log-Likelihood ---
+        ln_L_total = ln_L_S #+ ln_L_tau
+        
+        return ln_L_total
+    
+## General Setup
+label = "gw_localization"
+outdir = "outdir_ra_dec_A_iota_psi_0003"
+bilby.utils.check_directory_exists_and_if_not_mkdir(outdir)
+random.seed(123)
+rng = np.random.default_rng(123) # Use a modern random number generator
+
+
+## Set up injection
+injection_parameters = dict(
+    ra=0.5,                 # Right Ascension (rad)
+    dec=0.7,                # Declination (rad)
+    psi=np.pi/3,               # Polarization angle (rad)
+    A  = 1e-20,
+    iota = np.pi/3
+)
+#time_delay_ref=0.0  # Reference time delay
+
+
+## Generate data
+S_true = compute_complex_response(f_gw, **injection_parameters)
+print(S_true)
+#print(tau_true)
+
+#Errors
+sigma_S = np.ones(N_detectors) * 1e-22   # Strain error --> use different for real and im parts
+#sigma_tau = np.array([2.88241052, 2.77798241, 2.20523242]) # Time delay error (seconds)
+print(sigma_S)
+#print(sigma_tau)
+
+# Add Gaussian Noise to the true values to simulate measurements
+data_S = S_true + rng.normal(0, sigma_S, N_detectors) + 1j * rng.normal(0, sigma_S, N_detectors)
+#data_tau = tau_true + rng.normal(0, sigma_tau, N_detectors)
+print(data_S)
+#print(data_tau)
+
+## Instantiate Likelihood
+likelihood = GWNetworkLikelihood(
+    data_S=data_S, 
+    error_S=sigma_S,
+    model=compute_complex_response
+)
+#    data_tau=data_tau, 
+#    error_tau=sigma_tau, 
+
+# Define Priors (We want to sample the full sky)
+priors = bilby.core.prior.PriorDict()
+priors["dec"] = bilby.core.prior.Cosine(name='dec')
+priors["ra"] = bilby.core.prior.Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
+priors["psi"] = bilby.core.prior.Uniform(0, np.pi, "psi", latex_label=r"\psi")
+priors["iota"] = bilby.core.prior.Sine(name=r"\iota")
+priors["A"] = bilby.core.prior.LogUniform(0.5e-21, 0.5e-19, "A_plus", latex_label=r"A_+")
+#priors["A_cross"] = bilby.core.prior.LogUniform(1e-22, 1e-20, "A_cross", latex_label=r"A_\times")
+#priors["f_gw"] = injection_parameters["f_gw"] # Fix frequency for simplicity
+#priors["time_delay_ref"] = 0 # Fix reference time delay
+
+
+# Run sampler
+print("Starting BILBY sampler for GW localization...")
+result = bilby.run_sampler(
+    likelihood=likelihood,
+    priors=priors,
+    sampler="dynesty",
+    nlive=500,  # Increased nlive for better sky sampling
+    nact=5,
+    injection_parameters=injection_parameters,
+    outdir=outdir,
+    label=label,
+    seed=123,
+    result_class=bilby.gw.result.CBCResult #bilby.core.result.Result
+)
+
+# Finally plot a corner plot
+result.plot_corner()
+
+print(f"\nSampling complete. Results saved to {outdir}/{label}_result.json")
